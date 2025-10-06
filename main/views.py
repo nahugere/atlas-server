@@ -1,25 +1,34 @@
+import json
 import random
 import requests
-from django.shortcuts import render
+import configparser
 from rest_framework import status
-from rest_framework.decorators import api_view
+from django.shortcuts import render
+from django.core.cache import cache
+from django.core.paginator import Paginator
 from rest_framework.response import Response
+from django.http.response import JsonResponse
+from rest_framework.decorators import api_view
+
+config = configparser.ConfigParser()
+config.read("config.ini")
 
 WIKI_URL = "https://en.wikipedia.org/w/api.php"
-NEWSAPI_URL = "https://newsapi.org/v2/top-headlines?apiKey="
+NEWSAPI_URL = f"https://newsapi.org/v2/top-headlines?apiKey={config.get('NEWSAPI', 'key')}"
 ARTSY_URL = ""
 
 HEADERS = {"User-Agent": "Atlas/1.0 (gerenahu1@gmail.com)"}
 CATEGORIES = ["Philosophy", "History", "Technology", "Business", "Politics", "Sports", "Art"]
-SOURCES = [
-    {"Philosophy": ["Wikipedia"]},
-    {"History": ["Wikipedia"]},
-    {"Technology": ["Wikipedia", "NewsAPI"]},
-    {"Business": ["NewsAPI"]},
-    {"Politics": ["NewsAPI"]},
-    {"Sports": ["NewsAPI"]},
-    {"Art": ["Artsy"]}
-]
+SOURCES = {
+    "Philosophy": ["Wikipedia"],
+    "History": ["Wikipedia"],
+    "Technology": ["Wikipedia", "NewsAPI"],
+    "Business": ["NewsAPI"],
+    "Politics": ["NewsAPI"],
+    "Sports": ["NewsAPI"],
+    "Art": ["Artsy"]
+}
+ALL = {}
 FEED = []
 
 # Function to fetch from wikipedia
@@ -28,29 +37,28 @@ def fetch_wikipedia(query):
         "action": "query",
         "format": "json",
         "list": "search",
-        "srlimit": 50,
+        "srlimit": 20,
         "srsearch": query
     }
-    response = requests.get(WIKI_URL, params=params)
-    data = response.json()
+    response = requests.get(WIKI_URL, params=params, headers=HEADERS)
+    data = json.loads(response.text)
     f = []
     
     for d in data["query"]["search"]:
-        f.append(
-            {
-                "id": d["pageid"],
-                "source": "Wikipedia",
-                "img": "",
-                "readTime": d["wordcount"]/210,
-                "title": d["title"],
-                "url": f"https://en.wikipedia.org/?curid={d["pageid"]}"
-            }
-        )
-
-    try:
-        FEED[query].append(f)
-    except KeyError:
-        FEED[query] = f
+        h = {
+            "id": d["pageid"],
+            "source": "Wikipedia",
+            "img": "",
+            "readTime": d["wordcount"]/210,
+            "title": d["title"],
+            "url": f"https://en.wikipedia.org/?curid={d['pageid']}"
+        }
+        try:
+            ALL[query].append(h)
+        except KeyError:
+            ALL[query] = [h]
+        except Exception as e:
+            raise e
     return
 
 # Function to fetch from NewsAPI
@@ -63,21 +71,20 @@ def fetch_newsapi(query):
     f = []
 
     for d in data["articles"]:
-        f.append(
-            {
-                "id": "",
-                "source": d["source"]["name"],
-                "img": d["urlToImage"],
-                "author": d["author"],
-                "title": d["title"],
-                "url": d["url"]
-            }
-        )
-
-    try:
-        FEED[query].append(f)
-    except KeyError:
-        FEED[query] = f
+        h = {
+            "id": "",
+            "source": d["source"]["name"],
+            "img": d["urlToImage"],
+            "author": d["author"],
+            "title": d["title"],
+            "url": d["url"]
+        }
+        try:
+            ALL[query].append(h)
+        except KeyError:
+            ALL[query] = [h]
+        except Exception as e:
+            raise e
     return
 
 # Function to fetch from Artsy
@@ -86,24 +93,36 @@ def fetch_artsy(query):
 
 # Function to build the homepage
 def build_homepage():
-    
     for category in CATEGORIES:
         if "Wikipedia" in SOURCES[category]:
             fetch_wikipedia(category)
         if "NewsAPI" in SOURCES[category]:
             fetch_newsapi(category)
-        if "Artsy" in SOURCES[category]:
-            fetch_artsy(category)
-    for i in FEED:
-        FEED[i] = random.shuffle(FEED[i])
+    for i in ALL:
+        FEED.extend(ALL[i])
+    random.shuffle(FEED)
+    save_articles()
     return
 
 # Function to cache articles
-def save_articles(articles):
+def save_articles():
+    cache.set("feed:home", FEED)
+    cache.set("feed:categories", ALL)
     return
 
-@api_view(["GET"])
 def home_feed(request):
-    # if Redis cache ? Return pagination
-    p_num = request.GET.get("pnum", 1)
+    pnum = request.GET.get("pnum", 1)
     
+    cache_key = "feed:home"
+    cached_data = cache.get(cache_key)
+
+    if cached_data:
+        paginated = Paginator(cached_data, 30)
+        # TODO: Implement logic to fetch more if it ends
+        page = paginated.page(pnum)
+        return JsonResponse({"status": 200, "has_more": page.has_next(), "data": page.object_list}, safe=False)
+    
+    get_wiki = build_homepage()
+    paginated = Paginator(FEED, 30)
+    page = paginated.page(pnum)
+    return JsonResponse({"status": 201, "has_more": page.has_next(), "data": page.object_list}, safe=False)
