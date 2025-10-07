@@ -33,6 +33,7 @@ FEED = []
 
 # Function to fetch from wikipedia
 def fetch_wikipedia(query):
+    print("FETCHING ⭐️: Wikipedia")
     params = {
         "action": "query",
         "format": "json",
@@ -48,7 +49,7 @@ def fetch_wikipedia(query):
         h = {
             "id": d["pageid"],
             "source": "Wikipedia",
-            "img": "",
+            "img": "https://upload.wikimedia.org/wikipedia/en/thumb/8/80/Wikipedia-logo-v2.svg/500px-Wikipedia-logo-v2.svg.png",
             "readTime": d["wordcount"]/210,
             "title": d["title"],
             "url": f"https://en.wikipedia.org/?curid={d['pageid']}"
@@ -63,6 +64,7 @@ def fetch_wikipedia(query):
 
 # Function to fetch from NewsAPI
 def fetch_newsapi(query):
+    print("FETCHING ⭐️: NewsAPI")
     params = {
         "category": query
     }
