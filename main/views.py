@@ -31,6 +31,11 @@ SOURCES = {
 ALL = {}
 FEED = []
 
+def wiki_limits(query):
+    if query == "Philosophy" or query == "History":
+        return 30
+    return 10
+
 # Function to fetch from wikipedia
 def fetch_wikipedia(query):
     print("FETCHING ⭐️: Wikipedia")
@@ -38,7 +43,8 @@ def fetch_wikipedia(query):
         "action": "query",
         "format": "json",
         "list": "search",
-        "srlimit": 20,
+        "srlimit": wiki_limits(query),
+        "sroffset": random.randint(1,100)+50,
         "srsearch": query
     }
     response = requests.get(WIKI_URL, params=params, headers=HEADERS)
@@ -124,7 +130,26 @@ def home_feed(request):
         page = paginated.page(pnum)
         return JsonResponse({"status": 200, "has_more": page.has_next(), "data": page.object_list}, safe=False)
     
-    get_wiki = build_homepage()
+    build_homepage()
     paginated = Paginator(FEED, 30)
     page = paginated.page(pnum)
     return JsonResponse({"status": 201, "has_more": page.has_next(), "data": page.object_list}, safe=False)
+    
+def category_feed(request):
+    category = request.GET.get("category", "")
+
+    if category not in CATEGORIES:
+        return JsonResponse({"status": 404, "message": "Category doesn't exist"}, status=404)
+    
+    cache_key = "feed:categories"
+    cached_data = cache.get(cache_key)
+
+
+    if cached_data:
+        data = cached_data[category]
+    
+    else:
+        build_homepage()
+        data = ALL[category]
+
+    return JsonResponse(data, safe=False)
