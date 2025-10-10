@@ -2,6 +2,8 @@ import json
 import random
 import requests
 import configparser
+from .models import *
+from datetime import datetime
 from rest_framework import status
 from django.shortcuts import render
 from django.core.cache import cache
@@ -9,6 +11,8 @@ from django.core.paginator import Paginator
 from rest_framework.response import Response
 from django.http.response import JsonResponse
 from rest_framework.decorators import api_view
+
+today = datetime.today().strftime('%Y-%m-%d')
 
 config = configparser.ConfigParser()
 config.read("config.ini")
@@ -28,7 +32,9 @@ SOURCES = {
     "Sports": ["NewsAPI"],
     "Art": ["Artsy"]
 }
-ALL = {}
+ALL = {
+    "date": today
+}
 FEED = []
 
 def wiki_limits(query):
@@ -125,11 +131,15 @@ def home_feed(request):
     cached_data = cache.get(cache_key)
 
     if cached_data:
-        paginated = Paginator(cached_data, 30)
-        # TODO: Implement logic to fetch more if it ends
-        page = paginated.page(pnum)
-        return JsonResponse({"status": 200, "has_more": page.has_next(), "data": page.object_list}, safe=False)
-    
+        al = cache.get("feed:categories")
+        if today == al["date"]:
+            paginated = Paginator(cached_data, 30)
+            # TODO: Implement logic to fetch more if it ends
+            page = paginated.page(pnum)
+            return JsonResponse({"status": 200, "has_more": page.has_next(), "data": page.object_list}, safe=False)
+        f = Feed(feed=al, date=al["date"])
+        f.save()
+
     build_homepage()
     paginated = Paginator(FEED, 30)
     page = paginated.page(pnum)
