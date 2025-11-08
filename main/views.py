@@ -4,6 +4,7 @@ import requests
 import configparser
 from .models import *
 from datetime import datetime
+from upstash_redis import Redis
 from rest_framework import status
 from django.shortcuts import render
 from django.core.cache import cache
@@ -36,6 +37,7 @@ ALL = {
     "date": today
 }
 FEED = []
+redis = Redis(url=config.get('UPSTASH', 'url'), token=config.get('UPSTASH', 'token'))
 
 def wiki_limits(query):
     if query == "Philosophy" or query == "History":
@@ -85,14 +87,22 @@ def fetch_newsapi(query):
     f = []
 
     for d in data["articles"]:
+        # date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
         h = {
             "id": "",
             "source": d["source"]["name"],
             "img": d["urlToImage"],
             "author": d["author"],
             "title": d["title"],
-            "url": d["url"]
+            "author": d["author"],
+            "url": d["url"],
+            # "date": date.strftime("%b %d, %Y")
         }
+        # if d["description"] == None:
+        #     h["description"] = d["content"]
+        # else:
+        #     h["description"] = d["description"]
+
         try:
             ALL[query].append(h)
         except KeyError:
@@ -116,13 +126,11 @@ def build_homepage():
         FEED.extend(ALL[i])
     random.shuffle(FEED)
     save_articles()
-    return
 
 # Function to cache articles
 def save_articles():
-    cache.set("feed:home", FEED)
-    cache.set("feed:categories", ALL)
-    return
+    cache.set("feed:home", json.dumps(FEED))
+    cache.set("feed:categories", json.dumps(ALL))
 
 def home_feed(request):
     pnum = request.GET.get("pnum", 1)
@@ -131,14 +139,14 @@ def home_feed(request):
     cached_data = cache.get(cache_key)
 
     if cached_data:
-        al = cache.get("feed:categories")
-        if today == al["date"]:
-            paginated = Paginator(cached_data, 30)
-            # TODO: Implement logic to fetch more if it ends
-            page = paginated.page(pnum)
-            return JsonResponse({"status": 200, "has_more": page.has_next(), "data": page.object_list}, safe=False)
-        f = Feed(feed=al, date=al["date"])
-        f.save()
+        # al = cache.get("feed:categories")
+        # if today == al["date"]:
+        paginated = Paginator(json.loads(cached_data), 30)
+        # TODO: Implement logic to fetch more if it ends
+        page = paginated.page(pnum)
+        # f = Feed(feed=al, date=al["date"])
+        # f.save()
+        return JsonResponse({"status": 200, "has_more": page.has_next(), "data": page.object_list}, safe=False)
 
     build_homepage()
     paginated = Paginator(FEED, 30)
@@ -163,3 +171,6 @@ def category_feed(request):
         data = ALL[category]
 
     return JsonResponse(data, safe=False)
+
+def detail_page_wikipedia(request):
+    return
