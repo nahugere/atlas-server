@@ -82,6 +82,7 @@ DATABASES = {
     }
 }
 
+# Local Redis Server
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
