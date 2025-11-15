@@ -1,9 +1,10 @@
 import json
 import random
+import hashlib
 import requests
 import configparser
 from .models import *
-from datetime import datetime
+from datetime import date, datetime
 from upstash_redis import Redis
 from rest_framework import status
 from django.shortcuts import render
@@ -67,6 +68,7 @@ def fetch_wikipedia(query):
             "readTime": d["wordcount"]/210,
             "title": d["title"],
             "url": f"https://en.wikipedia.org/?curid={d['pageid']}"
+            # "contributors": 
         }
         try:
             ALL[query].append(h)
@@ -87,21 +89,21 @@ def fetch_newsapi(query):
     f = []
 
     for d in data["articles"]:
-        # date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
+        date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
         h = {
-            "id": "",
+            "id": int(hashlib.sha256(d["title"].encode()).hexdigest(), 16) % 100000,
             "source": d["source"]["name"],
             "img": d["urlToImage"],
             "author": d["author"],
             "title": d["title"],
             "author": d["author"],
             "url": d["url"],
-            # "date": date.strftime("%b %d, %Y")
+            "date": date.strftime("%b %d, %Y")
         }
-        # if d["description"] == None:
-        #     h["description"] = d["content"]
-        # else:
-        #     h["description"] = d["description"]
+        if d["description"] == None:
+            h["description"] = d["content"]
+        else:
+            h["description"] = d["description"]
 
         try:
             ALL[query].append(h)
@@ -146,12 +148,13 @@ def home_feed(request):
         page = paginated.page(pnum)
         # f = Feed(feed=al, date=al["date"])
         # f.save()
-        return JsonResponse({"status": 200, "has_more": page.has_next(), "data": page.object_list}, safe=False)
+        g = clean_data(page.object_list)
+        return JsonResponse({"status": 200, "has_more": page.has_next(), "data": clean_data(page.object_list)}, safe=False)
 
     build_homepage()
     paginated = Paginator(FEED, 30)
     page = paginated.page(pnum)
-    return JsonResponse({"status": 201, "has_more": page.has_next(), "data": page.object_list}, safe=False)
+    return JsonResponse({"status": 201, "has_more": page.has_next(), "data": clean_data(page.object_list)}, safe=False)
     
 def category_feed(request):
     category = request.GET.get("category", "")
@@ -160,8 +163,7 @@ def category_feed(request):
         return JsonResponse({"status": 404, "message": "Category doesn't exist"}, status=404)
     
     cache_key = "feed:categories"
-    cached_data = cache.get(cache_key)
-
+    cached_data = json.loads(cache.get(cache_key))
 
     if cached_data:
         data = cached_data[category]
@@ -172,5 +174,76 @@ def category_feed(request):
 
     return JsonResponse(data, safe=False)
 
+def clean_data(data):
+    rd = []
+    for d in data:
+        if type(d) == dict:
+            rd.append(d)
+    return rd
+
 def detail_page_wikipedia(request):
-    return
+    source = request.GET.get("source", "")
+    category = request.GET.get("category", "")
+    
+    if source == "":
+        return JsonResponse({"status": 400, "message": "Source not chosen"}, safe=False, status=400)
+    
+    if category not in CATEGORIES:
+        return JsonResponse({"status": 404, "message": "Category doesn't exist"}, status=404)
+    
+    # Fetch articles from source
+    p1 = {
+        "sources": source
+    }
+    r1 = requests.get(NEWSAPI_URL, params=p1)
+    same_source_articles = r1.json()
+
+    # Fetch similar articles
+    p2 = {
+        "category": category
+    }
+    r2 = requests.get(NEWSAPI_URL, params=p2)
+    similar_articles = r2.json()
+
+    # Create a json object
+    articles = {
+        "similar": [],
+        "source": []
+    }
+    for d in same_source_articles["articles"]:
+        date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
+        h = {
+            "id": int(hashlib.sha256(d["title"].encode()).hexdigest(), 16) % 100000,
+            "source": d["source"]["name"],
+            "img": d["urlToImage"],
+            "author": d["author"],
+            "title": d["title"],
+            "author": d["author"],
+            "url": d["url"],
+            "date": date.strftime("%b %d, %Y")
+        }
+        if d["description"] == None:
+            h["description"] = d["content"]
+        else:
+            h["description"] = d["description"]
+        articles["source"].append(h)
+    
+    for d in similar_articles["articles"]:
+        date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
+        h = {
+            "id": int(hashlib.sha256(d["title"].encode()).hexdigest(), 16) % 100000,
+            "source": d["source"]["name"],
+            "img": d["urlToImage"],
+            "author": d["author"],
+            "title": d["title"],
+            "author": d["author"],
+            "url": d["url"],
+            "date": date.strftime("%b %d, %Y")
+        }
+        if d["description"] == None:
+            h["description"] = d["content"]
+        else:
+            h["description"] = d["description"]
+        articles["similar"].append(h)
+
+    return JsonResponse({}, safe=False)
