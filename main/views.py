@@ -181,22 +181,20 @@ def clean_data(data):
             rd.append(d)
     return rd
 
-def detail_page_wikipedia(request):
-    source = request.GET.get("source", "")
+def detail_page(request):
+    source = request.GET.get("s", "")
     category = request.GET.get("category", "")
-    
-    if source == "":
-        return JsonResponse({"status": 400, "message": "Source not chosen"}, safe=False, status=400)
+
+    # Fetch articles from source
+    if source != "":
+        p1 = {
+            "sources": source
+        }
+        r1 = requests.get(NEWSAPI_URL, params=p1)
+        same_source_articles = r1.json()
     
     if category not in CATEGORIES:
         return JsonResponse({"status": 404, "message": "Category doesn't exist"}, status=404)
-    
-    # Fetch articles from source
-    p1 = {
-        "sources": source
-    }
-    r1 = requests.get(NEWSAPI_URL, params=p1)
-    same_source_articles = r1.json()
 
     # Fetch similar articles
     p2 = {
@@ -210,6 +208,7 @@ def detail_page_wikipedia(request):
         "similar": [],
         "source": []
     }
+    
     for d in same_source_articles["articles"]:
         date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
         h = {
@@ -246,4 +245,4 @@ def detail_page_wikipedia(request):
             h["description"] = d["description"]
         articles["similar"].append(h)
 
-    return JsonResponse({}, safe=False)
+    return JsonResponse({"source": articles["source"], "similar": articles["similar"]}, safe=False)
