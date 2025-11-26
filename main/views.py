@@ -246,3 +246,7 @@ def detail_page(request):
         articles["similar"].append(h)
 
     return JsonResponse({"source": articles["source"], "similar": articles["similar"]}, safe=False)
+
+def search(request):
+    search = request.GET.get("search")
+    return JsonResponse({"message": f"you searched for {search}"}, status=200)
