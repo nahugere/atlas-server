@@ -67,8 +67,8 @@ def fetch_wikipedia(query):
             "img": "https://upload.wikimedia.org/wikipedia/en/thumb/8/80/Wikipedia-logo-v2.svg/500px-Wikipedia-logo-v2.svg.png",
             "readTime": d["wordcount"]/210,
             "title": d["title"],
-            "url": f"https://en.wikipedia.org/?curid={d['pageid']}"
-            # "contributors": 
+            "url": f"https://en.wikipedia.org/?curid={d['pageid']}",
+            "category": query
         }
         try:
             ALL[query].append(h)
@@ -98,9 +98,10 @@ def fetch_newsapi(query):
             "title": d["title"],
             "author": d["author"],
             "url": d["url"],
-            "date": date.strftime("%b %d, %Y")
+            "date": date.strftime("%b %d, %Y"),
+            "category": query
         }
-        if d["description"] == None:
+        if d["description"]:
             h["description"] = d["content"]
         else:
             h["description"] = d["description"]
@@ -182,8 +183,15 @@ def clean_data(data):
     return rd
 
 def detail_page(request):
+    # TODO: Remove repetitive articles looping logic
+    # TODO: Modularize sources
     source = request.GET.get("s", "")
     category = request.GET.get("category", "")
+    wiki_detail = request.GET.get("wd", "")
+    articles = []
+
+    if category not in CATEGORIES:
+        return JsonResponse({"status": 404, "message": "Category doesn't exist"}, status=404)
 
     # Fetch articles from source
     if source != "":
@@ -192,60 +200,101 @@ def detail_page(request):
         }
         r1 = requests.get(NEWSAPI_URL, params=p1)
         same_source_articles = r1.json()
-    
-    if category not in CATEGORIES:
-        return JsonResponse({"status": 404, "message": "Category doesn't exist"}, status=404)
-
-    # Fetch similar articles
-    p2 = {
-        "category": category
-    }
-    r2 = requests.get(NEWSAPI_URL, params=p2)
-    similar_articles = r2.json()
-
-    # Create a json object
-    articles = {
-        "similar": [],
-        "source": []
-    }
-    
-    for d in same_source_articles["articles"]:
-        date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
-        h = {
-            "id": int(hashlib.sha256(d["title"].encode()).hexdigest(), 16) % 100000,
-            "source": d["source"]["name"],
-            "img": d["urlToImage"],
-            "author": d["author"],
-            "title": d["title"],
-            "author": d["author"],
-            "url": d["url"],
-            "date": date.strftime("%b %d, %Y")
+        a = {
+            "name": "Articles From Source",
+            "articles": []
         }
-        if d["description"] == None:
-            h["description"] = d["content"]
-        else:
-            h["description"] = d["description"]
-        articles["source"].append(h)
-    
-    for d in similar_articles["articles"]:
-        date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
-        h = {
-            "id": int(hashlib.sha256(d["title"].encode()).hexdigest(), 16) % 100000,
-            "source": d["source"]["name"],
-            "img": d["urlToImage"],
-            "author": d["author"],
-            "title": d["title"],
-            "author": d["author"],
-            "url": d["url"],
-            "date": date.strftime("%b %d, %Y")
-        }
-        if d["description"] == None:
-            h["description"] = d["content"]
-        else:
-            h["description"] = d["description"]
-        articles["similar"].append(h)
 
-    return JsonResponse({"source": articles["source"], "similar": articles["similar"]}, safe=False)
+        for d in same_source_articles["articles"]:
+            date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
+            h = {
+                "id": int(hashlib.sha256(d["title"].encode()).hexdigest(), 16) % 100000,
+                "source": d["source"]["name"],
+                "img": d["urlToImage"],
+                "author": d["author"],
+                "title": d["title"],
+                "author": d["author"],
+                "url": d["url"],
+                "date": date.strftime("%b %d, %Y"),
+                "category": category
+            }
+            if d["description"] == None:
+                h["description"] = d["content"]
+            else:
+                h["description"] = d["description"]
+            a["articles"].append(h)
+        articles.append(a)
+    
+        # Fetch similar articles
+        p2 = {
+            "category": category
+        }
+        r2 = requests.get(NEWSAPI_URL, params=p2)
+        similar_articles = r2.json()
+
+        a = {
+            "name": "Simmilar Articles",
+            "articles": []
+        }
+        
+        for d in similar_articles["articles"]:
+            date = datetime.fromisoformat(d["publishedAt"].replace("Z", "+00:00"))
+            h = {
+                "id": int(hashlib.sha256(d["title"].encode()).hexdigest(), 16) % 100000,
+                "source": d["source"]["name"],
+                "img": d["urlToImage"],
+                "author": d["author"],
+                "title": d["title"],
+                "author": d["author"],
+                "url": d["url"],
+                "date": date.strftime("%b %d, %Y"),
+                "category": category
+            }
+            if d["description"] == None:
+                h["description"] = d["content"]
+            else:
+                h["description"] = d["description"]
+            a["articles"].append(h)
+        
+        articles.append(a)
+
+        return JsonResponse({"articles": articles}, safe=False)
+    
+    cache_key = "feed:categories"
+    cached_data = cache.get(cache_key)
+
+    d = {}
+
+    if wiki_detail != "":
+        params = {
+            "action": "query",
+            "format": "json",
+            "prop": "extracts|pageprops",
+            "exintro": True,
+            "explaintext": True,
+            "ppprop": "description",
+            "pageids": wiki_detail
+        }
+        response = requests.get(WIKI_URL, params=params, headers=HEADERS)
+        data = response.json()
+        page = data["query"]["pages"][str(wiki_detail)]
+        if page.get("pageprops", {}).get("description"):
+            d["description"] = page.get("pageprops", {}).get("description")[0:900]
+        if page.get("extract"):
+            d["summary"] = page.get("extract")[0:500]
+
+    if cached_data:
+        data = json.loads(cached_data)[category]
+        return JsonResponse({"articles": [
+            {
+                "detail": d,
+                "name": "Similar Articles",
+                "articles": random.sample(data, 12)
+            }
+        ]}, safe=False)
+    return JsonResponse({"message": "We couldn't find the content you requested"}, status=404)
+
+
 
 def search(request):
     search = request.GET.get("search")
