@@ -9,7 +9,7 @@ from upstash_redis import Redis
 from rest_framework import status
 from datetime import date, datetime
 from django.shortcuts import render
-from django.core.cache import cache
+# from django.core.cache import cache
 from django.core.paginator import Paginator
 from rest_framework.response import Response
 from django.http.response import JsonResponse
@@ -44,7 +44,11 @@ ALL = {
     "date": today
 }
 FEED = []
-redis = Redis(url=config.get('UPSTASH', 'url'), token=config.get('UPSTASH', 'token'))
+
+redis_url = config.get('UPSTASH', 'url').strip()
+redis_token = config.get('UPSTASH', 'token').strip()
+
+cache = Redis(url=redis_url, token=redis_token)
 
 def wiki_limits(query):
     if query == "Philosophy" or query == "History":
@@ -90,6 +94,10 @@ def save_articles():
 
 def home_feed(request):
     pnum = request.GET.get("pnum", 1)
+
+    print(config.get('UPSTASH', 'url'))
+    print(config.get('UPSTASH', 'token'))
+    # return
     
     cache_key = "feed:home"
     cached_data = cache.get(cache_key)
@@ -155,7 +163,7 @@ def detail_page(request):
             "pageids": wiki_detail
         }
         _source = S["Wikipedia"].fetch_data(params, WIKI_URL)
-        detail = S["Wikipedia"].poppulate_detail(_source, category)
+        detail = S["Wikipedia"].poppulate_detail(_source, wiki_detail)
     
     else:
         # Get other data for other sources
@@ -166,11 +174,12 @@ def detail_page(request):
         _source = S["NewsAPI"].fetch_data(params, NEWSAPI_URL)
         data = S["NewsAPI"].poppulate_data(_source, category)
 
-        a = {
-            "name": f"Articles From {source}",
-            "articles": data
-        }
-        articles.append(a)
+        if len(data)>0:
+            a = {
+                "name": f"Articles From {source}",
+                "articles": data
+            }
+            articles.append(a)
 
 
     cache_key = "feed:categories"

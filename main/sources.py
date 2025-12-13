@@ -11,14 +11,21 @@ class Source:
         raise NotImplementedError
 
     def fetch_data(self, params, url):
-        response = requests.get(url, params=params, headers=self.headers)
-        data = response.json()
-        return data
+        try:
+            response = requests.get(url, params=params, headers=self.headers)
+            data = response.json()
+            return data
+        except Exception as e:
+            raise ConnectionError
 
 class WikiPedia(Source):
 
     def __init__(self, headers):
         super().__init__(headers)
+
+    def fetch_data(self, params, url):
+        print("FETCHING WIKIPEDIA ⭐️")
+        return super().fetch_data(params, url)
     
     def poppulate_data(self, data, q):
         a = []
@@ -51,6 +58,10 @@ class NewsAPI(Source):
 
     def __init__(self, headers):
         super().__init__(headers)
+
+    def fetch_data(self, params, url):
+        print("FETCHING NEWSAPI ⭐️")
+        return super().fetch_data(params, url)
     
     def poppulate_data(self, data, q):
         a = []
@@ -68,6 +79,10 @@ class NewsAPI(Source):
                 "date": date.strftime("%b %d, %Y"),
                 "category": q
             }
+            if d["description"] == None:
+                h["description"] = d["content"]
+            else:
+                h["description"] = f'{d["description"][0:200]}...'
             a.append(h)
         
         return a
